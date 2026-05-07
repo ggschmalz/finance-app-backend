@@ -81,9 +81,9 @@ WSGI_APPLICATION = 'finance_app_backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'sagui_db',        # Nome do banco de dados que você vai criar
+        'NAME': 'monetizai_db',        # Nome do banco de dados que você vai criar
         'USER': 'postgres',        # Seu usuário do Postgres
-        'PASSWORD': 'sua_senha',   # A senha do seu Postgres
+        'PASSWORD': 'admin',   # A senha do seu Postgres
         'HOST': 'localhost',       # Geralmente localhost ou 127.0.0.1
         'PORT': '5432',            # Porta padrão do Postgres
     }
