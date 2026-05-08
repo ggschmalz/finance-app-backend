@@ -10,11 +10,39 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+from dotenv import load_dotenv # <-- Adicione esta linha
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Carrega as variáveis do arquivo .env
+load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Substitua os valores fixos pelas chamadas de ambiente
+SECRET_KEY = os.getenv('SECRET_KEY')
+DEBUG = os.getenv('DEBUG') == 'True' # Converte string para Booleano
+
+# Database
+# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+
+# Configuração do Banco de Dados
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('DB_NAME'),
+        'USER': os.getenv('DB_USER'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST'),
+        'PORT': os.getenv('DB_PORT'),
+    }
+}
+
+# Configuração do Google OAuth
+GOOGLE_OAUTH2_CLIENT_ID = os.getenv('GOOGLE_OAUTH2_CLIENT_ID')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
@@ -55,6 +83,13 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    # Podemos deixar outras configurações que você já tenha aqui
+}
+
 ROOT_URLCONF = 'finance_app_backend.urls'
 
 TEMPLATES = [
@@ -73,22 +108,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'finance_app_backend.wsgi.application'
-
-
-# Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'monetizai_db',        # Nome do banco de dados que você vai criar
-        'USER': 'postgres',        # Seu usuário do Postgres
-        'PASSWORD': 'admin',   # A senha do seu Postgres
-        'HOST': 'localhost',       # Geralmente localhost ou 127.0.0.1
-        'PORT': '5432',            # Porta padrão do Postgres
-    }
-}
-
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
