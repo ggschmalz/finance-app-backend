@@ -4,4 +4,5 @@ from .models import Transaction
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
-        fields = '__all__' # Expõe todos os campos do modelo
+        fields = '__all__'
+        read_only_fields = ['user'] # <-- Protege o campo para não ser manipulado via POST/PUT
