@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -11,22 +11,29 @@ from google.oauth2 import id_token
 from google.auth.transport import requests
 from django.conf import settings
 
-from .models import Transaction
-from .serializers import TransactionSerializer
+from .models import Transaction, Profile
+from .serializers import TransactionSerializer, UserSerializer
+from .permissions import IsAdminUser, IsStandardOrAdmin
+
+class UserListView(generics.ListAPIView):
+    """
+    Listagem de usuários para administradores.
+    """
+    queryset = User.objects.all().select_related('profile').order_by('-date_joined')
+    serializer_class = UserSerializer
+    permission_classes = [IsAdminUser]
 
 class TransactionViewSet(viewsets.ModelViewSet):
     """
     Gerencia o CRUD de transações com isolamento de usuário.
     """
     serializer_class = TransactionSerializer
-    # permission_classes = [IsAuthenticated] # Agora definido globalmente no settings.py
+    permission_classes = [IsStandardOrAdmin]
 
     def get_queryset(self):
-        # Garante que um usuário nunca veja as transações de outro.
         return Transaction.objects.filter(user=self.request.user).order_by('-date')
 
     def perform_create(self, serializer):
-        # Injeta o usuário autenticado diretamente no modelo antes de salvar.
         serializer.save(user=self.request.user)
 
 
@@ -34,10 +41,11 @@ class DashboardView(APIView):
     """
     Endpoint que retorna dados agregados para o Dashboard.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsStandardOrAdmin]
 
     def get(self, request):
         user = request.user
+        # ... (rest of the code)
         
         # Filtro de ano (padrão: ano atual)
         year = request.query_params.get('year', timezone.now().year)
@@ -133,7 +141,8 @@ class GoogleLoginView(APIView):
                 'user': {
                     'email': user.email,
                     'name': f"{user.first_name} {user.last_name}".strip(),
-                    'picture': picture_url
+                    'picture': picture_url,
+                    'role': user.profile.role
                 }
             }, status=status.HTTP_200_OK)
 

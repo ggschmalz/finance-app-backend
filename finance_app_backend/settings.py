@@ -115,6 +115,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://192.168.0.104:5173", # <-- Adicione o IP da sua máquina aqui
+    "http://192.168.0.104.nip.io:5173", # <-- A nossa nova origem com o nip.io
 ]
 
 # Configuração do Django REST Framework e SimpleJWT
