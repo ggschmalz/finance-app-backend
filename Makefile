@@ -15,7 +15,7 @@ help:
 	@echo "  make install  - Instala as dependências do requirements.txt"
 
 run:
-	$(MANAGE) runserver
+	$(MANAGE) runserver 0.0.0.0:8000
 
 mm:
 	$(MANAGE) makemigrations
