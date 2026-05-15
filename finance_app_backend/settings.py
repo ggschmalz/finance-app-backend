@@ -19,7 +19,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 # Permite rodar localmente por padrão, ou lê do ambiente se existir
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,.elasticbeanstalk.com').split(',')
+
+# ... (rest of the apps and middleware)
 
 
 # ==========================================
@@ -105,6 +107,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ==========================================
@@ -115,6 +118,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://192.168.0.104:5173", # <-- Adicione o IP da sua máquina aqui
+    "http://192.168.0.104.nip.io:5173", # <-- A nossa nova origem com o nip.io
 ]
 
 # Configuração do Django REST Framework e SimpleJWT
