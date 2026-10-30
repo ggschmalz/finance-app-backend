@@ -23,6 +23,15 @@ class UserListView(generics.ListAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsAdminUser]
 
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Visualização, alteração de função (role) e remoção de usuários para administradores.
+    """
+    queryset = User.objects.all().select_related('profile')
+    serializer_class = UserSerializer
+    permission_classes = [IsAdminUser]
+
+
 class TransactionViewSet(viewsets.ModelViewSet):
     """
     Gerencia o CRUD de transações com isolamento de usuário.

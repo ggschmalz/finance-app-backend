@@ -74,19 +74,29 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'finance_app_backend.wsgi.application'
 
-# ==========================================
-# BANCO DE DADOS (PostgreSQL lido do .env)
-# ==========================================
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PORT'),
+import sys
+
+# Detecta se os testes do Django estão sendo executados
+IS_TESTING = 'test' in sys.argv
+
+if IS_TESTING:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'test_db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME'),
+            'USER': os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'HOST': os.getenv('DB_HOST'),
+            'PORT': os.getenv('DB_PORT'),
+        }
+    }
 
 # ==========================================
 # VALIDAÇÃO DE SENHAS
@@ -101,8 +111,8 @@ AUTH_PASSWORD_VALIDATORS = [
 # ==========================================
 # INTERNACIONALIZAÇÃO
 # ==========================================
-LANGUAGE_CODE = 'en-us' # Pode alterar para 'pt-br' se desejar
-TIME_ZONE = 'UTC'       # Pode alterar para 'America/Sao_Paulo' se desejar
+LANGUAGE_CODE = 'pt-br'
+TIME_ZONE = 'America/Sao_Paulo'
 USE_I18N = True
 USE_TZ = True
 
@@ -114,13 +124,27 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # CONFIGURAÇÕES DA API E AUTENTICAÇÃO
 # ==========================================
 
-# Permite que o frontend (rodando no Vite) faça requisições para o Django
-CORS_ALLOWED_ORIGINS = [
+# Permite que o frontend (rodando no Vite ou CloudFront) faça requisições para o Django
+_default_cors = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://192.168.0.104:5173", # <-- Adicione o IP da sua máquina aqui
-    "http://192.168.0.104.nip.io:5173", # <-- A nossa nova origem com o nip.io
+    "http://192.168.0.104:5173",
+    "http://192.168.0.104.nip.io:5173",
+    "http://192.168.0.17:5173",          # Novo IP
+    "http://192.168.0.17.nip.io:5173",   # Novo domínio nip.io
+    "http://172.20.10.2:5173",
+    "http://172.20.10.2.nip.io:5173",
+    "http://191.244.237.62",
+    "http://172.20.10.2",
+    "http://192.168.0.2",
+    "http://177.34.97.193"
 ]
+_env_cors = os.getenv('CORS_ALLOWED_ORIGINS')
+if _env_cors:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _env_cors.split(',') if origin.strip()] + _default_cors
+else:
+    CORS_ALLOWED_ORIGINS = _default_cors
+
 
 # Configuração do Django REST Framework e SimpleJWT
 REST_FRAMEWORK = {
@@ -132,7 +156,10 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
 }
+
 
 # Configuração detalhada do SimpleJWT
 from datetime import timedelta

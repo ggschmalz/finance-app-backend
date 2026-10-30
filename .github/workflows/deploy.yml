@@ -1,0 +1,45 @@
+name: Deploy Backend to AWS Elastic Beanstalk
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Instalar Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Executar Testes Unitários
+        run: |
+          python manage.py test
+
+      - name: Gerar Pacote de Deploy (ZIP)
+        run: |
+          zip -r deploy.zip . -x "*.git*" "venv/*" "__pycache__/*" "*/__pycache__/*" "*.pyc" ".env" "test_db.sqlite3"
+
+      - name: Deploy no Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v22
+        with:
+          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          application_name: ${{ secrets.EB_APP_NAME || 'finance-app-backend' }}
+          environment_name: ${{ secrets.EB_ENV_NAME || 'finance-app-dev-env' }}
+          version_label: "deploy-${{ github.sha }}-${{ github.run_number }}"
+          region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          deployment_package: deploy.zip
+          wait_for_deployment: true

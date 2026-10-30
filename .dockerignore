@@ -1,0 +1,16 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.git/
+.gitignore
+.github/
+.ebextensions/
+*.log
+.DS_Store
+.idea/
+.vscode/
+test_db.sqlite3
+*.sqlite3
+buildspec.yml
