@@ -1,45 +1,115 @@
-name: Deploy Backend to AWS Elastic Beanstalk
+name: CI/CD Pipeline - Finance App
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches:
+      - main
+
+env:
+  PROJECT_NAME: "finance-app"
+  ECR_REGISTRY: "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
 
 jobs:
-  test-and-deploy:
+  build:
+    name: Build & Push Docker Images
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout do Código
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Configurar Python 3.12
-        uses: actions/setup-python@v5
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Instalar Dependências
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Backend Image
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          IMAGE_TAG=${{ github.sha }}
+          docker build -t $ECR_REGISTRY/$PROJECT_NAME-backend:$IMAGE_TAG -t $ECR_REGISTRY/$PROJECT_NAME-backend:latest ./backend
+          docker push $ECR_REGISTRY/$PROJECT_NAME-backend:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$PROJECT_NAME-backend:latest
 
-      - name: Executar Testes Unitários
+      - name: Build and Push Frontend Image
         run: |
-          python manage.py test
+          IMAGE_TAG=${{ github.sha }}
+          docker build -t $ECR_REGISTRY/$PROJECT_NAME-frontend:$IMAGE_TAG -t $ECR_REGISTRY/$PROJECT_NAME-frontend:latest ./frontend
+          docker push $ECR_REGISTRY/$PROJECT_NAME-frontend:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$PROJECT_NAME-frontend:latest
 
-      - name: Gerar Pacote de Deploy (ZIP)
-        run: |
-          zip -r deploy.zip . -x "*.git*" "venv/*" "__pycache__/*" "*/__pycache__/*" "*.pyc" ".env" "test_db.sqlite3"
+  deploy:
+    name: Deploy to EC2 via AWS SSM
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Deploy no Elastic Beanstalk
-        uses: einaregilsson/beanstalk-deploy@v22
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          application_name: ${{ secrets.EB_APP_NAME || 'finance-app-backend' }}
-          environment_name: ${{ secrets.EB_ENV_NAME || 'finance-app-dev-env' }}
-          version_label: "deploy-${{ github.sha }}-${{ github.run_number }}"
-          region: ${{ secrets.AWS_REGION || 'us-east-1' }}
-          deployment_package: deploy.zip
-          wait_for_deployment: true
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Execute Deploy Command via SSM
+        run: |
+          echo "Disparando deploy na EC2 ${{ secrets.EC2_INSTANCE_ID }}..."
+
+          # Codifica o docker-compose em base64
+          if [ -f docker-compose.prod.yml ]; then
+            COMPOSE_B64=$(base64 -w 0 docker-compose.prod.yml)
+          else
+            COMPOSE_B64=$(base64 -w 0 docker-compose.yml)
+          fi
+
+          cat <<EOF > ssm_params.json
+          {
+            "commands": [
+              "mkdir -p /home/ubuntu/app/uploads /home/ubuntu/app/data/postgres /home/ubuntu/app/data/redis /home/ubuntu/app/certbot/conf /home/ubuntu/app/certbot/www",
+              "cd /home/ubuntu/app",
+              "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_REGISTRY",
+              "echo '$COMPOSE_B64' | base64 -d > docker-compose.yml",
+              "cat << 'ENVEOF' > .env",
+              "NODE_ENV=production",
+              "ECR_REGISTRY=$ECR_REGISTRY",
+              "IMAGE_TAG=${{ github.sha }}",
+              "AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}",
+              "AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}",
+              "S3_BACKUP_BUCKET=${{ secrets.S3_BACKUP_BUCKET }}",
+              "POSTGRES_USER=${{ secrets.POSTGRES_USER }}",
+              "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}",
+              "POSTGRES_DB=${{ secrets.POSTGRES_DB }}",
+              "JWT_SECRET=${{ secrets.JWT_SECRET }}",
+              "DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}",
+              "REDIS_URL=redis://redis:6379/0",
+              "UPLOAD_DIR=/app/uploads",
+              "ENVEOF",
+              "chmod 600 /home/ubuntu/app/.env",
+              "docker compose pull",
+              "docker compose up -d --remove-orphans",
+              "docker compose ps"
+            ]
+          }
+          EOF
+
+          COMMAND_ID=$(aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --parameters file://ssm_params.json \
+            --region "${{ secrets.AWS_REGION }}" \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "Comando SSM disparado: $COMMAND_ID. Aguardando execução na EC2..."
+
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --region "${{ secrets.AWS_REGION }}"
+
+          echo "Deploy finalizado com sucesso!"
