@@ -19,7 +19,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 # Permite rodar localmente por padrão, ou lê do ambiente se existir
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,.elasticbeanstalk.com').split(',')
+_default_hosts = 'localhost,127.0.0.1,backend,34.237.7.83,monetizai.app.br,www.monetizai.app.br'
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', _default_hosts).split(',') if h.strip()]
+
+# Informa ao Django que está atrás de um proxy reverso HTTPS (Nginx)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
 
 # ... (rest of the apps and middleware)
 
@@ -126,6 +132,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Permite que o frontend (rodando no Vite ou CloudFront) faça requisições para o Django
 _default_cors = [
+    'https://monetizai.app.br',
+    'https://www.monetizai.app.br',
+    'http://monetizai.app.br',
+    'http://www.monetizai.app.br',
+    'http://34.237.7.83',
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://192.168.0.104:5173",
@@ -144,6 +155,15 @@ if _env_cors:
     CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _env_cors.split(',') if origin.strip()] + _default_cors
 else:
     CORS_ALLOWED_ORIGINS = _default_cors
+
+# CSRF Trusted Origins para navegadores em HTTPS
+CSRF_TRUSTED_ORIGINS = [
+    'https://monetizai.app.br',
+    'https://www.monetizai.app.br',
+    'http://monetizai.app.br',
+    'http://www.monetizai.app.br',
+    'http://34.237.7.83',
+]
 
 
 # Configuração do Django REST Framework e SimpleJWT
