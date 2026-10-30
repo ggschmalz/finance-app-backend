@@ -1,17 +1,43 @@
-name: CI/CD Pipeline - Finance App
+name: Deploy Backend to Amazon ECR & EC2
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
 
 env:
-  PROJECT_NAME: "finance-app"
-  ECR_REGISTRY: "${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: finance-app-backend
 
 jobs:
-  build:
-    name: Build & Push Docker Images
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Tests
+        env:
+          SECRET_KEY: test-secret-key-for-unit-tests
+          DEBUG: "True"
+        run: |
+          python manage.py test
+
+  build-and-deploy:
+    name: Build, Push Image & Trigger EC2
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -22,94 +48,44 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and Push Backend Image
+      - name: Build, Tag and Push Backend Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_TAG=${{ github.sha }}
-          docker build -t $ECR_REGISTRY/$PROJECT_NAME-backend:$IMAGE_TAG -t $ECR_REGISTRY/$PROJECT_NAME-backend:latest ./backend
-          docker push $ECR_REGISTRY/$PROJECT_NAME-backend:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$PROJECT_NAME-backend:latest
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Build and Push Frontend Image
+      - name: Trigger EC2 Deploy via AWS SSM
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
         run: |
-          IMAGE_TAG=${{ github.sha }}
-          docker build -t $ECR_REGISTRY/$PROJECT_NAME-frontend:$IMAGE_TAG -t $ECR_REGISTRY/$PROJECT_NAME-frontend:latest ./frontend
-          docker push $ECR_REGISTRY/$PROJECT_NAME-frontend:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$PROJECT_NAME-frontend:latest
-
-  deploy:
-    name: Deploy to EC2 via AWS SSM
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Execute Deploy Command via SSM
-        run: |
-          echo "Disparando deploy na EC2 ${{ secrets.EC2_INSTANCE_ID }}..."
-
-          # Codifica o docker-compose em base64
-          if [ -f docker-compose.prod.yml ]; then
-            COMPOSE_B64=$(base64 -w 0 docker-compose.prod.yml)
-          else
-            COMPOSE_B64=$(base64 -w 0 docker-compose.yml)
-          fi
-
-          cat <<EOF > ssm_params.json
-          {
-            "commands": [
-              "mkdir -p /home/ubuntu/app/uploads /home/ubuntu/app/data/postgres /home/ubuntu/app/data/redis /home/ubuntu/app/certbot/conf /home/ubuntu/app/certbot/www",
-              "cd /home/ubuntu/app",
-              "aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_REGISTRY",
-              "echo '$COMPOSE_B64' | base64 -d > docker-compose.yml",
-              "cat << 'ENVEOF' > .env",
-              "NODE_ENV=production",
-              "ECR_REGISTRY=$ECR_REGISTRY",
-              "IMAGE_TAG=${{ github.sha }}",
-              "AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}",
-              "AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}",
-              "S3_BACKUP_BUCKET=${{ secrets.S3_BACKUP_BUCKET }}",
-              "POSTGRES_USER=${{ secrets.POSTGRES_USER }}",
-              "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}",
-              "POSTGRES_DB=${{ secrets.POSTGRES_DB }}",
-              "JWT_SECRET=${{ secrets.JWT_SECRET }}",
-              "DATABASE_URL=postgresql://${{ secrets.POSTGRES_USER }}:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}",
-              "REDIS_URL=redis://redis:6379/0",
-              "UPLOAD_DIR=/app/uploads",
-              "ENVEOF",
-              "chmod 600 /home/ubuntu/app/.env",
-              "docker compose pull",
-              "docker compose up -d --remove-orphans",
-              "docker compose ps"
-            ]
-          }
-          EOF
-
           COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
-            --parameters file://ssm_params.json \
-            --region "${{ secrets.AWS_REGION }}" \
+            --parameters commands='[
+              "cd /home/ubuntu/app",
+              "aws ecr get-login-password --region '${AWS_REGION}' | docker login --username AWS --password-stdin '${ECR_REGISTRY}'",
+              "docker compose pull backend",
+              "docker compose up -d backend",
+              "docker compose exec -T backend python manage.py migrate --noinput"
+            ]' \
+            --region "$AWS_REGION" \
             --query "Command.CommandId" \
             --output text)
 
-          echo "Comando SSM disparado: $COMMAND_ID. Aguardando execução na EC2..."
-
+          echo "Comando SSM disparado: $COMMAND_ID. Aguardando execução..."
           aws ssm wait command-executed \
             --command-id "$COMMAND_ID" \
-            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
-            --region "${{ secrets.AWS_REGION }}"
+            --instance-id "$EC2_INSTANCE_ID" \
+            --region "$AWS_REGION"
 
-          echo "Deploy finalizado com sucesso!"
+          echo "Deploy do Backend concluído com sucesso!"
