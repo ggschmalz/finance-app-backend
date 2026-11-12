@@ -4,7 +4,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from datetime import date
 
-from transactions.models import Profile, Transaction
+from transactions.models import Profile, Transaction, CreditCardInvoice, CreditCardTransaction
 
 class ProfileSignalTest(TestCase):
     def test_user_creation_creates_profile(self):
@@ -134,3 +134,107 @@ class DashboardViewTest(TestCase):
         self.assertEqual(response.data['summary']['total_income'], 2000.00)
         self.assertIn('monthly_evolution', response.data)
         self.assertIn('category_distribution', response.data)
+
+
+class CreditCardViewSetTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user1 = User.objects.create_user(username='crd_user1', email='crd1@example.com', password='password123')
+        self.user1.profile.role = 'STANDARD'
+        self.user1.profile.save()
+
+        self.user2 = User.objects.create_user(username='crd_user2', email='crd2@example.com', password='password123')
+        self.user2.profile.role = 'STANDARD'
+        self.user2.profile.save()
+
+    def test_create_and_list_invoices(self):
+        self.client.force_authenticate(user=self.user1)
+        res = self.client.post('/api/credit-cards/invoices/', {
+            'description': 'Fatura Outubro 2026',
+            'due_date': '2026-10-10'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['description'], 'Fatura Outubro 2026')
+        self.assertEqual(res.data['total_amount'], 0.0)
+
+        # Listagem
+        list_res = self.client.get('/api/credit-cards/invoices/')
+        self.assertEqual(list_res.status_code, status.HTTP_200_OK)
+        results = list_res.data.get('results', list_res.data)
+        self.assertEqual(len(results), 1)
+
+    def test_toggle_invoice_payment_status(self):
+        self.client.force_authenticate(user=self.user1)
+        inv = CreditCardInvoice.objects.create(
+            user=self.user1,
+            description='Fatura Novembro 2026',
+            due_date=date(2026, 11, 10),
+            is_paid=False
+        )
+        patch_res = self.client.patch(f'/api/credit-cards/invoices/{inv.id}/', {'is_paid': True}, format='json')
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        inv.refresh_from_db()
+        self.assertTrue(inv.is_paid)
+
+    def test_add_and_edit_card_expense(self):
+        self.client.force_authenticate(user=self.user1)
+        inv = CreditCardInvoice.objects.create(
+            user=self.user1,
+            description='Fatura Dezembro 2026',
+            due_date=date(2026, 12, 10)
+        )
+        # Lançar despesa
+        res = self.client.post('/api/credit-cards/transactions/', {
+            'invoice': inv.id,
+            'description': 'Supermercado Central',
+            'amount': 250.00,
+            'category': 'Alimentação',
+            'date': '2026-11-15'
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(inv.total_amount, 250.00)
+
+        tx_id = res.data['id']
+        # Editar despesa
+        patch_res = self.client.patch(f'/api/credit-cards/transactions/{tx_id}/', {
+            'amount': 300.00
+        }, format='json')
+        self.assertEqual(patch_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(inv.total_amount, 300.00)
+
+        # Excluir despesa
+        del_res = self.client.delete(f'/api/credit-cards/transactions/{tx_id}/')
+        self.assertEqual(del_res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(inv.total_amount, 0.0)
+
+    def test_dashboard_card_appropriation_due_date_regime(self):
+        self.client.force_authenticate(user=self.user1)
+        # Fatura com vencimento em Fevereiro (mês 2)
+        inv = CreditCardInvoice.objects.create(
+            user=self.user1,
+            description='Fatura Fevereiro 2026',
+            due_date=date(2026, 2, 10)
+        )
+        # Despesa efetuada em Janeiro (mês 1)
+        CreditCardTransaction.objects.create(
+            invoice=inv,
+            description='Notebook',
+            amount=1500.00,
+            category='Eletrônicos',
+            date=date(2026, 1, 15)
+        )
+        res = self.client.get('/api/dashboard/?year=2026')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        
+        # Mês 1 não deve ter a despesa do cartão
+        m1 = next(item for item in res.data['monthly_evolution'] if item['month'] == 1)
+        self.assertEqual(m1['expense'], 0.0)
+        
+        # Mês 2 (mês de vencimento da fatura) deve ter a despesa de 1500
+        m2 = next(item for item in res.data['monthly_evolution'] if item['month'] == 2)
+        self.assertEqual(m2['expense'], 1500.0)
+
+        # Categoria 'Cartão de Crédito' deve estar na distribuição
+        cat = next((c for c in res.data['category_distribution'] if c['category'] == 'Cartão de Crédito'), None)
+        self.assertIsNotNone(cat)
+        self.assertEqual(cat['amount'], 1500.0)

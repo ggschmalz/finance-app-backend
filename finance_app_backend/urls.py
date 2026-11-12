@@ -5,6 +5,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from transactions.views import (
     TransactionViewSet,
+    CreditCardInvoiceViewSet,
+    CreditCardTransactionViewSet,
     GoogleLoginView,
     DashboardView,
     UserListView,
@@ -13,6 +15,8 @@ from transactions.views import (
 
 router = DefaultRouter()
 router.register(r'transactions', TransactionViewSet, basename='transactions')
+router.register(r'credit-cards/invoices', CreditCardInvoiceViewSet, basename='credit-card-invoices')
+router.register(r'credit-cards/transactions', CreditCardTransactionViewSet, basename='credit-card-transactions')
 
 urlpatterns = [
     path('admin/', admin.site.urls),

@@ -1,12 +1,26 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Transaction, Profile
+from .models import Transaction, Profile, CreditCardInvoice, CreditCardTransaction
 
 class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
         fields = '__all__'
         read_only_fields = ['user']
+
+class CreditCardTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CreditCardTransaction
+        fields = ['id', 'invoice', 'description', 'amount', 'category', 'date', 'created_at']
+
+class CreditCardInvoiceSerializer(serializers.ModelSerializer):
+    total_amount = serializers.FloatField(read_only=True)
+    transactions = CreditCardTransactionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CreditCardInvoice
+        fields = ['id', 'description', 'due_date', 'is_paid', 'total_amount', 'transactions', 'created_at']
+        read_only_fields = ['user', 'total_amount', 'created_at']
 
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.ChoiceField(choices=Profile.ROLE_CHOICES, source='profile.role')
