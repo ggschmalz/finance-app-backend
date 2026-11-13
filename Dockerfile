@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 # Evita geracao de bytecode .pyc e forca saida em tempo real no terminal
 ENV PYTHONDONTWRITEBYTECODE=1
